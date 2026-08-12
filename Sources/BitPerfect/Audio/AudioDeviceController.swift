@@ -16,13 +16,13 @@ final class AudioDeviceController {
         core.defaultOutputDevice
     }
 
-    /// UID of the device the user pinned RateMatch to, or nil to follow the system default output device.
+    /// UID of the device the user pinned Bit Perfect to, or nil to follow the system default output device.
     var preferredDeviceUID: String? {
         get { defaults.string(forKey: preferredDeviceUIDKey) }
         set { defaults.set(newValue, forKey: preferredDeviceUIDKey) }
     }
 
-    /// The device RateMatch should act on: the pinned device if still connected, otherwise the system default.
+    /// The device Bit Perfect should act on: the pinned device if still connected, otherwise the system default.
     var targetDevice: AudioDevice? {
         if let uid = preferredDeviceUID, let pinned = outputDevices.first(where: { $0.uid == uid }) {
             return pinned
@@ -45,7 +45,7 @@ final class AudioDeviceController {
         }
     }
 
-    /// Whether RateMatch holds an outboard DAC's stream open so it can't fall asleep
+    /// Whether Bit Perfect holds an outboard DAC's stream open so it can't fall asleep
     /// between tracks and pop on the way back. On by default — the pop is the thing users
     /// notice, and the silence we feed it is bit-identical to no signal at all.
     var keepAwakeEnabled: Bool {

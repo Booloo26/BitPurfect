@@ -66,7 +66,7 @@ final class MenuBarController: NSObject {
 
     private func updateStatusItemTitle() {
         guard let button = statusItem.button else { return }
-        let label = engine.currentDisplayState()?.menubarLabel ?? "RateMatch"
+        let label = engine.currentDisplayState()?.menubarLabel ?? "Bit Perfect"
         button.attributedTitle = NSAttributedString(
             string: label,
             attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)]
@@ -662,7 +662,7 @@ final class MenuBarController: NSObject {
 
     private func buildQuitRow(_ theme: PanelTheme) -> NSView {
         let row = makeClickableRow(theme: theme, action: #selector(quit))
-        let label = makeLabel("Quit RateMatch", font: .systemFont(ofSize: 11.5), color: theme.textLow)
+        let label = makeLabel("Quit Bit Perfect", font: .systemFont(ofSize: 11.5), color: theme.textLow)
         label.frame = NSRect(x: inset, y: 11, width: contentWidth, height: 16)
         row.addSubview(label)
         return row

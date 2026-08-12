@@ -252,7 +252,7 @@ final class SwitchingEngine {
     }
 
     /// Re-evaluates the current track against the (possibly newly picked) target device or
-    /// forced rate — call after the user changes which device RateMatch targets, or pins/clears a rate.
+    /// forced rate — call after the user changes which device Bit Perfect targets, or pins/clears a rate.
     ///
     /// Safe to reach from a rate-change notification: our own write fires one too, but
     /// `applyIfNeeded` stops as soon as the device already sits on the target, so it settles

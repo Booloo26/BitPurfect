@@ -1,4 +1,4 @@
-# RateMatch
+# Bit Perfect
 
 A macOS menu bar app that keeps your audio output device on the same sample rate as whatever
 Apple Music is playing, so lossless tracks reach your DAC without Core Audio resampling them.
@@ -16,7 +16,7 @@ a decoder:
 ACAppleLosslessDecoder.cpp:681 (0x...) Input format: 2 ch, 96000 Hz, alac (0x00000003) from 24-bit source
 ```
 
-RateMatch reads those lines and matches the output device to them.
+Bit Perfect reads those lines and matches the output device to them.
 
 Two details drive the whole design:
 
@@ -38,7 +38,7 @@ Two details drive the whole design:
   resample). Output is always the source rate, an integer ratio of it, or — only if the device
   offers nothing in that family — the nearest rate it does support.
 - **The rate is held, not just set.** If Audio MIDI Setup or another app moves the device's rate,
-  RateMatch puts it back.
+  Bit Perfect puts it back.
 - **Anti-pop** holds a silent stream open on wired external DACs so they don't power their output
   stage down between tracks and click on the way back. While Music is playing it writes exact
   zeros, so a bit-perfect path stays bit perfect; when idle it writes dither at about -120 dBFS
@@ -67,7 +67,7 @@ make icon     # regenerate AppIcon.icns from Packaging/GenerateIcon.swift
 make clean
 ```
 
-The app is signed with a **local self-signed certificate** (`RateMatch Dev`) and is **not
+The app is signed with a **local self-signed certificate** (`Bit Perfect Dev`) and is **not
 notarized**, which is fine for running it on the machine that built it. Gatekeeper will reject it
 if you copy it to another Mac; that needs a Developer ID and a notarization pass.
 
@@ -79,10 +79,10 @@ Item approval — would need re-approving each time.
 
 | Path | What's in it |
 | --- | --- |
-| `Sources/RateMatch/Detection/` | `log stream` subprocess and the decoder-line parser; Now Playing bridge |
-| `Sources/RateMatch/Engine/` | Rate decisions, display state |
-| `Sources/RateMatch/Audio/` | Core Audio device access, rate selection, anti-pop stream |
-| `Sources/RateMatch/UI/` | Menu bar panel and its four themes |
+| `Sources/BitPerfect/Detection/` | `log stream` subprocess and the decoder-line parser; Now Playing bridge |
+| `Sources/BitPerfect/Engine/` | Rate decisions, display state |
+| `Sources/BitPerfect/Audio/` | Core Audio device access, rate selection, anti-pop stream |
+| `Sources/BitPerfect/UI/` | Menu bar panel and its four themes |
 | `Packaging/` | `Info.plist`, icon generator, generated `.icns` |
 
 The UI implements design 1a ("Minimal · one number, one verdict") from the Bit Perfect design

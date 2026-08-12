@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>RateMatch</string>
+    <string>BitPerfect</string>
     <key>CFBundleIdentifier</key>
-    <string>com.booloo.RateMatch</string>
+    <string>com.booloo.BitPerfect</string>
     <key>CFBundleName</key>
-    <string>RateMatch</string>
+    <string>Bit Perfect</string>
     <key>CFBundleDisplayName</key>
-    <string>RateMatch</string>
+    <string>Bit Perfect</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleSignature</key>

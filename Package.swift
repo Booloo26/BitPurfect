@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "RateMatch",
+    name: "BitPerfect",
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/rnine/SimplyCoreAudio.git", from: "4.0.0"),
@@ -15,12 +15,12 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "RateMatch",
+            name: "BitPerfect",
             dependencies: [
                 .product(name: "SimplyCoreAudio", package: "SimplyCoreAudio"),
                 .product(name: "MediaRemoteAdapter", package: "mediaremote-adapter")
             ],
-            path: "Sources/RateMatch"
+            path: "Sources/BitPerfect"
         )
     ]
 )
