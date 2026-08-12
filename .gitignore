@@ -1,0 +1,9 @@
+# Swift Package Manager build output
+.build/
+
+# Generated from Packaging/GenerateIcon.swift via `make icon`.
+# The compiled .icns is tracked so a normal build needs no generation step; the intermediate
+# iconset is not.
+Packaging/AppIcon.iconset/
+
+.DS_Store
