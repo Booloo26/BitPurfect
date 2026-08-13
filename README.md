@@ -49,7 +49,8 @@ Two details drive the whole design:
 
 ## Requirements
 
-- Apple Silicon Mac. The build is arm64-only.
+- **Apple Silicon Mac.** The build is arm64-only — see [Sharing it](#sharing-it) for why a
+  universal binary isn't currently possible with this toolchain.
 - Apple Music with Lossless enabled.
 - An admin account is not required (this reads logs via `log`, not `OSLogStore`).
 
@@ -67,13 +68,90 @@ make icon     # regenerate AppIcon.icns from Packaging/GenerateIcon.swift
 make clean
 ```
 
-The app is signed with a **local self-signed certificate** (`BitPurfect Dev`) and is **not
-notarized**, which is fine for running it on the machine that built it. Gatekeeper will reject it
-if you copy it to another Mac; that needs a Developer ID and a notarization pass.
+`make run` signs with a **local self-signed certificate** (`BitPurfect Dev`), which is fine on the
+machine that built the app and rejected by Gatekeeper anywhere else. Create it once in Keychain
+Access, or with `openssl req -x509 -newkey rsa:2048 -nodes -subj "/CN=BitPurfect Dev"
+-addext "extendedKeyUsage=codeSigning"` imported via `security import`.
 
-Signing uses a stable local identity rather than ad-hoc (`codesign -s -`) on purpose: an ad-hoc
-signature changes on every build, and anything macOS keys to the app's identity — such as a Login
-Item approval — would need re-approving each time.
+A stable local identity is used rather than ad-hoc (`codesign -s -`) on purpose: an ad-hoc
+signature changes on every build, and anything macOS keys to the app's identity — a Login Item
+approval, for instance — would need re-approving each time.
+
+## Sharing it
+
+|  | `make dist` | `make dist-adhoc` |
+| --- | --- | --- |
+| Needs | Apple Developer Program ($99/yr) | nothing |
+| Recipient | double-clicks, it opens | must approve it once in System Settings |
+| Output | notarized, stapled `.dmg` | ad-hoc signed `.dmg` |
+
+Both produce `.build/dist/BitPurfect-<version>.dmg` containing the app, an `/Applications`
+symlink, `LICENSE`, and `THIRD-PARTY-NOTICES.md`. That last file is not optional — the bundled
+dependencies are MIT and BSD-3, and both require their copyright notices to accompany a binary.
+
+The App Store is not an option: the now-playing bridge reaches a private framework through
+`/usr/bin/perl`, which App Review rejects, and sandboxing would break log reading anyway.
+
+### The notarized path
+
+Once enrolled, create a **Developer ID Application** certificate, then store a notary credential
+once:
+
+```
+xcrun notarytool store-credentials "notary" \
+  --apple-id "you@example.com" --team-id TEAMID --password APP_SPECIFIC_PASSWORD
+```
+
+Then:
+
+```
+make dist DIST_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+```
+
+That signs with hardened runtime (notarization refuses without it), builds the disk image,
+submits and waits, staples the ticket so verification needs no network, and finishes with
+`spctl -a -t install` as a check.
+
+**Expect to test one thing.** Hardened runtime is the only part of this that hasn't been
+exercised here, and it is exactly the kind of change that can break the perl → MediaRemote
+bridge, which depends on loading a dylib into an Apple-signed binary. If now-playing detection
+stops working under a hardened build, add an entitlements file granting
+`com.apple.security.cs.disable-library-validation` and pass it with `--entitlements`.
+
+### The free path
+
+`make dist-adhoc` gives a valid but anonymous signature. Recipients will be blocked on first
+launch and have to allow it explicitly:
+
+1. Double-click the app; macOS refuses to open it.
+2. **System Settings → Privacy & Security**, scroll to the message about BitPurfect, click
+   **Open Anyway**.
+3. Confirm.
+
+Recent macOS removed the old right-click → Open shortcut, so this System Settings trip is the
+only route. Anyone technical can instead strip the quarantine flag themselves:
+
+```
+xattr -d com.apple.quarantine /Applications/BitPurfect.app
+```
+
+### Why it's arm64-only
+
+`swift build --arch arm64 --arch x86_64` fails when linking the x86_64 slice:
+
+```
+"__swift_FORCE_LOAD_$_swiftCompatibility56", referenced from: ...
+ld: symbol(s) not found for architecture x86_64
+```
+
+The Swift back-deployment compatibility archives shipped with the Command Line Tools contain
+**arm64 and arm64e slices only**, and the dependencies' older deployment targets pull those
+archives in. Full Xcode ships the x86_64 slices; the Command Line Tools do not. So a universal
+build needs Xcode installed.
+
+In practice this matters less than it sounds: Intel Macs stop at macOS 15, this app's log-line
+detection is only verified on macOS 27, and the toolchain now warns that x86_64 is deprecated for
+recent deployment targets.
 
 ## Layout
 
