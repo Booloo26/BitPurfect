@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !others.isEmpty else { return false }
 
         // Hand the user back the copy that's already there, so clicking the app again reads as
-        // "show me Bit Perfect" rather than doing nothing at all.
+        // "show me BitPurfect" rather than doing nothing at all.
         others.first?.activate()
         NSApp.terminate(nil)
         return true

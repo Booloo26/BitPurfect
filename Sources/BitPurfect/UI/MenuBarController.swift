@@ -1,8 +1,9 @@
 import AppKit
 import SimplyCoreAudio
 
-/// Builds the "Bit Perfect" panel: design 1a ("Minimal · one number, one verdict"),
-/// themeable across the design's four styles (Graphite/Paper/Liquid glass/Ink).
+/// Builds the menu bar panel from design 1a ("Minimal · one number, one verdict") of the
+/// "Bit Perfect" design document, themeable across its four styles
+/// (Graphite/Paper/Liquid glass/Ink).
 ///
 /// 1a is deliberately just the number and the verdict — no signal path. The anti-pop, style
 /// and quit rows are app plumbing the mockup has no reason to show, and are the only additions.
@@ -66,7 +67,7 @@ final class MenuBarController: NSObject {
 
     private func updateStatusItemTitle() {
         guard let button = statusItem.button else { return }
-        let label = engine.currentDisplayState()?.menubarLabel ?? "Bit Perfect"
+        let label = engine.currentDisplayState()?.menubarLabel ?? "BitPurfect"
         button.attributedTitle = NSAttributedString(
             string: label,
             attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)]
@@ -662,7 +663,7 @@ final class MenuBarController: NSObject {
 
     private func buildQuitRow(_ theme: PanelTheme) -> NSView {
         let row = makeClickableRow(theme: theme, action: #selector(quit))
-        let label = makeLabel("Quit Bit Perfect", font: .systemFont(ofSize: 11.5), color: theme.textLow)
+        let label = makeLabel("Quit BitPurfect", font: .systemFont(ofSize: 11.5), color: theme.textLow)
         label.frame = NSRect(x: inset, y: 11, width: contentWidth, height: 16)
         row.addSubview(label)
         return row
