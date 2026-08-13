@@ -11,6 +11,13 @@ resampled, whatever the badge in Apple Music says.
 BitPurfect reads the rate Apple Music is actually decoding and follows it, so the bits reaching
 your DAC are the bits that left the studio.
 
+<p align="center">
+  <img src="docs/panel.png" alt="BitPurfect's menu bar panel: 44.1 kHz, 24-bit Lossless, reported bit perfect, with output device, force-rate chips and switches" width="360">
+</p>
+
+<p align="center"><em>The menu bar reads the live output rate. The panel says whether it's bit
+perfect and why — here in the Paper theme.</em></p>
+
 ---
 
 ## Anti-pop, for sensitive IEMs
