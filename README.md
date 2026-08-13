@@ -1,143 +1,220 @@
 # BitPurfect
 
-A macOS menu bar app that keeps your audio output device on the same sample rate as whatever
-Apple Music is playing, so lossless tracks reach your DAC without Core Audio resampling them.
+A macOS menu bar app that keeps your DAC on the same sample rate as whatever Apple Music is
+playing — and stops it clicking between tracks.
 
-macOS never does this on its own: the output device stays on whatever rate Audio MIDI Setup was
-last left on, and everything else is silently converted to match.
+macOS doesn't do either of these things on its own. Your output device sits on whatever sample
+rate Audio MIDI Setup was last left on, and Core Audio quietly resamples everything else to match.
+Play a 96 kHz Hi-Res track on a device parked at 44.1 kHz and that is what you hear: 96 kHz,
+resampled, whatever the badge in Apple Music says.
+
+BitPurfect reads the rate Apple Music is actually decoding and follows it, so the bits reaching
+your DAC are the bits that left the studio.
+
+---
+
+## Anti-pop, for sensitive IEMs
+
+If you use efficient IEMs on an outboard DAC, you'll know the sound: a **click or thump when the
+music pauses**, when a track ends, or a moment after you stop listening. On sensitive gear it can
+be genuinely startling, and on some DACs it's loud enough to be unpleasant.
+
+It isn't your music. Most USB DACs power down their output stage when the audio stream goes idle,
+and it's the **wake-up** that makes the noise — the output relay closing, charge pumps spinning
+back up. The quieter and more efficient your IEMs, the more of that you hear.
+
+**BitPurfect's fix is to never let the DAC fall asleep.** It holds a silent stream open on the
+device, so there's no standby to wake from and nothing to click.
+
+The part that matters to anyone chasing bit-perfect playback is *what* that silent stream
+contains:
+
+- **While Apple Music is playing**, it writes **exact digital zeros**. Summed into the mix, zeros
+  leave every bit of the music untouched. A bit-perfect path stays bit perfect — this costs you
+  nothing.
+- **When nothing is playing**, it writes dither at roughly **-120 dBFS**. That's non-zero, which
+  is deliberate: some DACs watch for digital silence rather than for an idle USB stream, and would
+  sleep through pure zeros. It sits about 20 dB below the noise floor of any 16-bit source, so it
+  is inaudible even on high-sensitivity IEMs at listening volume.
+
+It only runs where the problem actually exists — **wired external DACs** (USB, Thunderbolt,
+FireWire, PCI, DisplayPort, HDMI, AVB). It's skipped for the Mac's own headphone jack, which
+doesn't pop, and for Bluetooth and AirPlay, where holding a wireless link open streaming silence
+would cost battery for no benefit. On those, the row doesn't even appear.
+
+It's on by default, and the panel tells you the truth about it rather than what you asked for: a
+live **HOLDING DAC AWAKE** badge when the stream is genuinely running, and a plain warning if it
+couldn't be opened.
+
+### One pop it can't remove
+
+Honesty about the limits: anti-pop eliminates the **standby** pop — pauses, gaps, idle time. It
+does not eliminate a click caused by an actual **sample-rate change**, because the DAC has to
+re-lock its clock when the rate changes, and some DACs click when they do. That is inherent to
+following the source rate.
+
+If your DAC is one of those and you'd rather have silence than bit-perfect playback, the **Force
+output rate** row is the escape hatch: pin one rate, accept that everything gets resampled to it,
+and the DAC never re-locks. The panel will honestly report itself as "Resampled" while you do.
+
+---
+
+## What else it does
+
+- **Follows the source rate.** 44.1, 48, 88.2, 96, 176.4, 192 kHz and up — whatever your DAC
+  supports.
+- **Respects clock family when it can't match exactly.** On a device that stops at 96 kHz, a
+  176.4 kHz source goes to **88.2 kHz** — an exact 2:1 decimation — not to the numerically closer
+  96 kHz, which would be a messy 1.8375:1 resample. Output is always the source rate, an integer
+  ratio of it, or the nearest rate available if the device offers nothing in that family.
+- **Holds the rate.** If Audio MIDI Setup or another app moves your device's rate, BitPurfect puts
+  it back.
+- **Tells you when it isn't bit perfect, and why.** "Resampled" with a plain-language reason,
+  rather than a green light that means nothing.
+- **Force output rate.** Pin a rate manually; tap Auto to hand control back.
+- **Four themes** — Graphite, Paper, Liquid glass (real `NSGlassEffectView` on macOS 26+), Ink.
+- **Menu bar readout** of the current output rate.
+- **Launch at login.**
+
+Lossy streams report no rate at all, because only the lossless decoder logs one. The app says so
+rather than guessing.
+
+---
+
+## Install
+
+Download the `.dmg` from [Releases](https://github.com/Booloo26/BitPurfect/releases), drag
+BitPurfect to Applications, and launch it.
+
+**Builds here are signed with an anonymous (ad-hoc) signature, not notarized**, so macOS will
+block the first launch. To allow it:
+
+1. Double-click the app. macOS refuses to open it.
+2. Open **System Settings → Privacy & Security**, scroll to the message about BitPurfect, and
+   click **Open Anyway**.
+3. Confirm.
+
+Recent macOS removed the old right-click → Open shortcut, so that System Settings trip is the only
+route. If you'd rather do it from a terminal:
+
+```bash
+xattr -d com.apple.quarantine /Applications/BitPurfect.app
+```
+
+Nothing leaves your machine. No network access, no analytics, no accounts.
+
+### Requirements
+
+- **Apple Silicon Mac.** arm64 only — see [Why it's arm64-only](#why-its-arm64-only).
+- **Apple Music with Lossless enabled** (Settings → Playback → Audio Quality).
+- No admin account needed.
+
+**Verified on macOS 27.0 only.** The minimum is set to 14.0 and nothing in the code needs more —
+the Liquid glass theme is gated to macOS 26+ and falls back cleanly — but detection depends on a
+Core Audio log line whose wording Apple could change in any release. It has not been tested below
+27. If detection stops working after a macOS update, that log line is the first thing to check.
+
+---
 
 ## How it works
 
-Apple Music doesn't publish the sample rate of what it's playing through any API. It does log it,
-though — Core Audio's ALAC decoder writes a line naming the rate and bit depth whenever it builds
-a decoder:
+Apple Music doesn't expose the sample rate of what it's playing through any API. It does log it.
+Core Audio's ALAC decoder writes a line naming the rate and bit depth whenever it builds a
+decoder:
 
 ```
 ACAppleLosslessDecoder.cpp:681 (0x...) Input format: 2 ch, 96000 Hz, alac (0x00000003) from 24-bit source
 ```
 
-BitPurfect reads those lines and matches the output device to them.
+BitPurfect watches for those lines and matches the output device to them. Two findings shape the
+implementation, both measured rather than assumed:
 
-Two details drive the whole design:
+**Detection runs `/usr/bin/log stream` as a subprocess, not `OSLogStore` in-process.**
+`OSLogStore` turns out to be unusable in both directions. A handle held across reads is a snapshot
+frozen at open time — reopened 12 seconds later, a fresh store saw 13 seconds of entries the held
+one never showed, so every read after launch silently found nothing. Opening a fresh store per
+read instead leaks a `com.apple.loggingsupport.stream` thread on every open, which are never
+reclaimed; that reached 70 threads and 218 MB before reads stopped completing at all and the UI
+locked up. A subprocess has neither problem: it's live by definition, and the kernel reclaims
+everything when it exits. It's also push-based, so a format change is seen the moment Music logs
+it instead of being polled for.
 
-- **Detection runs `/usr/bin/log stream` as a subprocess**, not `OSLogStore` in-process.
-  `OSLogStore` cannot be used either way round: a handle held across reads is a snapshot frozen
-  at open time and never sees anything logged afterwards, while opening a fresh one per read
-  leaks a `com.apple.loggingsupport.stream` thread every time — enough to reach 70 threads and
-  stall completely. A subprocess is live by definition and gets fully reclaimed on exit.
+**Music logs a decoder line only when it *creates* a decoder,** then reuses it for every following
+track in the same format. Long runs of tracks log nothing at all, and resuming a paused track logs
+nothing. So a detected format is kept until a genuinely different one is reported, and a one-shot
+`log show` fills in the format when the app starts mid-track.
 
-- **Music logs a decoder line only when it *creates* a decoder**, then reuses it for every
-  following track in the same format. Runs of many tracks log nothing at all, and resuming a
-  paused track logs nothing. So a detected format is kept until a *different* one is reported,
-  and a one-shot `log show` fills in the format when the app starts mid-track.
-
-## Behaviour worth knowing
-
-- **Rate choice respects clock family.** On a device that stops at 96 kHz, a 176.4 kHz source
-  goes to 88.2 kHz (an exact 2:1 decimation), not to the numerically closer 96 kHz (a 1.8375:1
-  resample). Output is always the source rate, an integer ratio of it, or — only if the device
-  offers nothing in that family — the nearest rate it does support.
-- **The rate is held, not just set.** If Audio MIDI Setup or another app moves the device's rate,
-  BitPurfect puts it back.
-- **Anti-pop** holds a silent stream open on wired external DACs so they don't power their output
-  stage down between tracks and click on the way back. While Music is playing it writes exact
-  zeros, so a bit-perfect path stays bit perfect; when idle it writes dither at about -120 dBFS
-  for DACs that watch for digital silence rather than an idle USB stream. It's skipped for
-  built-in, Bluetooth and AirPlay output, which don't have the problem.
-- **Lossy streams report no rate at all**, because only the lossless decoder logs one. The panel
-  says so rather than guessing.
-
-## Requirements
-
-- **Apple Silicon Mac.** The build is arm64-only — see [Sharing it](#sharing-it) for why a
-  universal binary isn't currently possible with this toolchain.
-- Apple Music with Lossless enabled.
-- An admin account is not required (this reads logs via `log`, not `OSLogStore`).
-
-**Verified on macOS 27.0 only.** `LSMinimumSystemVersion` is 14.0 and nothing in the code needs
-more than that — the Liquid glass theme is gated to macOS 26+ and falls back cleanly — but the log
-line detection has not been tested on anything older, and Apple could change that line's wording
-in any release. If detection stops working after a macOS update, that line is the thing to check.
+---
 
 ## Building
 
-```
+```bash
 make run      # build, bundle, sign, launch
 make stop     # quit the app and its two helper processes
 make icon     # regenerate AppIcon.icns from Packaging/GenerateIcon.swift
 make clean
 ```
 
-`make run` signs with a **local self-signed certificate** (`BitPurfect Dev`), which is fine on the
-machine that built the app and rejected by Gatekeeper anywhere else. Create it once in Keychain
-Access, or with `openssl req -x509 -newkey rsa:2048 -nodes -subj "/CN=BitPurfect Dev"
--addext "extendedKeyUsage=codeSigning"` imported via `security import`.
+Swift Package Manager and the Xcode Command Line Tools are enough; full Xcode is not required.
 
-A stable local identity is used rather than ad-hoc (`codesign -s -`) on purpose: an ad-hoc
-signature changes on every build, and anything macOS keys to the app's identity — a Login Item
-approval, for instance — would need re-approving each time.
+`make run` signs with a local self-signed certificate named `BitPurfect Dev`, which you'll need to
+create once:
 
-## Sharing it
+```bash
+openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
+  -keyout dev.key -out dev.crt -subj "/CN=BitPurfect Dev" \
+  -addext "keyUsage=critical,digitalSignature" \
+  -addext "extendedKeyUsage=codeSigning"
+openssl pkcs12 -export -in dev.crt -inkey dev.key -out dev.p12 -password pass:dev
+security import dev.p12 -k ~/Library/Keychains/login.keychain-db -P dev -T /usr/bin/codesign
+```
 
-|  | `make dist` | `make dist-adhoc` |
+A stable local identity is used rather than ad-hoc on purpose: an ad-hoc signature changes on
+every build, and anything macOS keys to the app's identity — a Login Item approval, for instance —
+would need re-approving each time.
+
+### Layout
+
+| Path | What's in it |
+| --- | --- |
+| `Sources/BitPurfect/Detection/` | `log stream` subprocess and decoder-line parser; now-playing bridge |
+| `Sources/BitPurfect/Engine/` | Rate decisions, display state |
+| `Sources/BitPurfect/Audio/` | Core Audio device access, rate selection, anti-pop stream |
+| `Sources/BitPurfect/UI/` | Menu bar panel and its four themes |
+| `Packaging/` | `Info.plist`, icon generator, generated `.icns` |
+
+### Releasing
+
+| | `make dist` | `make dist-adhoc` |
 | --- | --- | --- |
-| Needs | Apple Developer Program ($99/yr) | nothing |
-| Recipient | double-clicks, it opens | must approve it once in System Settings |
-| Output | notarized, stapled `.dmg` | ad-hoc signed `.dmg` |
+| Needs | Apple Developer Program | nothing |
+| Recipient | double-clicks, it opens | must approve once in System Settings |
 
-Both produce `.build/dist/BitPurfect-<version>.dmg` containing the app, an `/Applications`
-symlink, `LICENSE`, and `THIRD-PARTY-NOTICES.md`. That last file is not optional — the bundled
-dependencies are MIT and BSD-3, and both require their copyright notices to accompany a binary.
+Both write `.build/dist/BitPurfect-<version>.dmg` containing the app, an `/Applications` symlink,
+`LICENSE` and `THIRD-PARTY-NOTICES.md`. That last file isn't optional — the bundled dependencies
+are MIT and BSD-3, and both require their copyright notices to accompany a binary.
+
+For the notarized path, store a credential once and pass your identity:
+
+```bash
+xcrun notarytool store-credentials "notary" \
+  --apple-id "you@example.com" --team-id TEAMID --password APP_SPECIFIC_PASSWORD
+
+make dist DIST_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+```
+
+That signs with hardened runtime, builds the image, submits and waits, staples the ticket, and
+verifies. **Hardened runtime is the one part of this that hasn't been exercised**, and it's exactly
+the kind of change that can break the perl → MediaRemote bridge, which loads a dylib into an
+Apple-signed binary. If now-playing detection stops working under a hardened build, add an
+entitlements file granting `com.apple.security.cs.disable-library-validation`.
 
 The App Store is not an option: the now-playing bridge reaches a private framework through
 `/usr/bin/perl`, which App Review rejects, and sandboxing would break log reading anyway.
 
-### The notarized path
-
-Once enrolled, create a **Developer ID Application** certificate, then store a notary credential
-once:
-
-```
-xcrun notarytool store-credentials "notary" \
-  --apple-id "you@example.com" --team-id TEAMID --password APP_SPECIFIC_PASSWORD
-```
-
-Then:
-
-```
-make dist DIST_IDENTITY="Developer ID Application: Your Name (TEAMID)"
-```
-
-That signs with hardened runtime (notarization refuses without it), builds the disk image,
-submits and waits, staples the ticket so verification needs no network, and finishes with
-`spctl -a -t install` as a check.
-
-**Expect to test one thing.** Hardened runtime is the only part of this that hasn't been
-exercised here, and it is exactly the kind of change that can break the perl → MediaRemote
-bridge, which depends on loading a dylib into an Apple-signed binary. If now-playing detection
-stops working under a hardened build, add an entitlements file granting
-`com.apple.security.cs.disable-library-validation` and pass it with `--entitlements`.
-
-### The free path
-
-`make dist-adhoc` gives a valid but anonymous signature. Recipients will be blocked on first
-launch and have to allow it explicitly:
-
-1. Double-click the app; macOS refuses to open it.
-2. **System Settings → Privacy & Security**, scroll to the message about BitPurfect, click
-   **Open Anyway**.
-3. Confirm.
-
-Recent macOS removed the old right-click → Open shortcut, so this System Settings trip is the
-only route. Anyone technical can instead strip the quarantine flag themselves:
-
-```
-xattr -d com.apple.quarantine /Applications/BitPurfect.app
-```
-
 ### Why it's arm64-only
 
-`swift build --arch arm64 --arch x86_64` fails when linking the x86_64 slice:
+`swift build --arch arm64 --arch x86_64` fails linking the x86_64 slice:
 
 ```
 "__swift_FORCE_LOAD_$_swiftCompatibility56", referenced from: ...
@@ -146,23 +223,28 @@ ld: symbol(s) not found for architecture x86_64
 
 The Swift back-deployment compatibility archives shipped with the Command Line Tools contain
 **arm64 and arm64e slices only**, and the dependencies' older deployment targets pull those
-archives in. Full Xcode ships the x86_64 slices; the Command Line Tools do not. So a universal
-build needs Xcode installed.
+archives in. Full Xcode ships the x86_64 slices; the Command Line Tools don't. So a universal build
+needs Xcode installed.
 
-In practice this matters less than it sounds: Intel Macs stop at macOS 15, this app's log-line
-detection is only verified on macOS 27, and the toolchain now warns that x86_64 is deprecated for
-recent deployment targets.
+In practice it matters less than it sounds: Intel Macs stop at macOS 15, detection here is only
+verified on macOS 27, and the toolchain now warns that x86_64 is deprecated for recent deployment
+targets.
 
-## Layout
+---
 
-| Path | What's in it |
-| --- | --- |
-| `Sources/BitPurfect/Detection/` | `log stream` subprocess and the decoder-line parser; Now Playing bridge |
-| `Sources/BitPurfect/Engine/` | Rate decisions, display state |
-| `Sources/BitPurfect/Audio/` | Core Audio device access, rate selection, anti-pop stream |
-| `Sources/BitPurfect/UI/` | Menu bar panel and its four themes |
-| `Packaging/` | `Info.plist`, icon generator, generated `.icns` |
+## Licence
 
-The UI implements design 1a ("Minimal · one number, one verdict") from the Bit Perfect design
-document; the icon is design 1d ("Sample bars"). The anti-pop, style and quit rows are additions
-the mockups have no reason to show.
+MIT — see [LICENSE](LICENSE).
+
+Bundled dependencies and their notices are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md): [SimplyCoreAudio](https://github.com/rnine/SimplyCoreAudio)
+(MIT), [mediaremote-adapter](https://github.com/ejbills/mediaremote-adapter) (BSD 3-Clause, a fork
+of [ungive/mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) where the technique
+originates), and [Swift Atomics](https://github.com/apple/swift-atomics) (Apache 2.0).
+
+[LosslessSwitcher](https://github.com/vincentneo/LosslessSwitcher) (GPLv3) proved this was possible
+and is where the decoder-log approach comes from. No code was taken from it — only the idea that
+the log line exists.
+
+The UI follows design 1a ("Minimal · one number, one verdict") from the Bit Perfect design
+document; the icon is design 1d ("Sample bars").
