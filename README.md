@@ -93,6 +93,14 @@ rather than guessing.
 
 ### What "other apps" covers
 
+<p align="center">
+  <img src="docs/other-app.png" alt="The Other app reading: Safari has the audio, the DAC parked at 48 kHz, sub-line reading 32-bit Fallback" width="360">
+</p>
+
+<p align="center"><em>Safari has the audio, so the DAC sits at 48 kHz. The sub-line reads
+"32-bit · Fallback" because that output offers no 24-bit format at 48 kHz — the rate moved, the
+depth didn't, and the panel says so.</em></p>
+
 The fallback keys off the system's now-playing information, so it sees apps that publish there —
 browsers, Spotify, Podcasts, TV, most media players. Measured on this machine: Safari playing
 audio publishes correctly (as `com.apple.WebKit.GPU`, which the app relabels to "Safari").
