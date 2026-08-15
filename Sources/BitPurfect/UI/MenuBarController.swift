@@ -257,6 +257,18 @@ final class MenuBarController: NSObject {
         ))
 
         rows.append(.fullBleed(makeDivider(theme), 1))
+        rows.append(.fullBleed(
+            buildToggleRow(
+                title: "48 kHz for other apps",
+                isOn: engine.isFallbackEnabled,
+                color: theme.lockedColor,
+                theme: theme,
+                action: #selector(toggleFallback)
+            ),
+            40
+        ))
+
+        rows.append(.fullBleed(makeDivider(theme), 1))
         rows.append(.fullBleed(buildLoginItemRow(isOn: loginItemManager.isEnabled, color: theme.lockedColor, theme: theme), 38))
 
         rows.append(.fullBleed(makeDivider(theme), 1))
@@ -333,7 +345,7 @@ final class MenuBarController: NSObject {
 
         // Source indicator, pushed to the right edge like the design's `margin-left:auto`.
         // It takes its natural width, giving way only if the status word leaves too little.
-        let sourceText = state.isSourcePlaying ? "APPLE MUSIC" : "APPLE MUSIC · IDLE"
+        let sourceText = state.sourceLabel.uppercased()
         let source = makeLabel(
             sourceText,
             font: .monospacedSystemFont(ofSize: 9.5, weight: .medium),
@@ -717,6 +729,11 @@ final class MenuBarController: NSObject {
         } else {
             engine.isEnabled.toggle()
         }
+        refresh()
+    }
+
+    @objc private func toggleFallback() {
+        engine.isFallbackEnabled.toggle()
         refresh()
     }
 

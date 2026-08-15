@@ -18,12 +18,16 @@ enum PanelStatus {
     case locked
     case resampled
     case idle
+    /// Something other than Apple Music is playing, so there's no source rate to be perfect
+    /// about — the panel reports where the device is parked instead of judging it.
+    case otherSource
 
     var word: String {
         switch self {
         case .locked: return "Bit perfect"
         case .resampled: return "Resampled"
         case .idle: return "Idle · default"
+        case .otherSource: return "Other app"
         }
     }
 }
@@ -43,8 +47,10 @@ struct PanelDisplayState {
     let deviceName: String
     let autoOn: Bool
 
-    /// Drives the design's source indicator in the panel header.
+    /// Drives the design's source indicator in the panel header — "APPLE MUSIC", or whichever
+    /// app has taken over now-playing.
     let isSourcePlaying: Bool
+    let sourceLabel: String
 
     /// nil unless something with a poppable output stage is connected — the design gates
     /// this whole row on `dacConnected`, so on the internal speakers it doesn't appear.

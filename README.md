@@ -78,6 +78,11 @@ and the DAC never re-locks. The panel will honestly report itself as "Resampled"
   it back.
 - **Tells you when it isn't bit perfect, and why.** "Resampled" with a plain-language reason,
   rather than a green light that means nothing.
+- **48 kHz for other apps.** When something that isn't Apple Music takes over the audio — a video
+  in a browser, Spotify, a podcast — the DAC drops to 48 kHz rather than sitting on whatever the
+  last track needed. 48 kHz is what video, web audio and system sound are authored at, so the
+  common case stops being resampled too. Apple Music takes the rate back on the next track. On by
+  default; see the caveats below.
 - **Force output rate.** Pin a rate manually; tap Auto to hand control back.
 - **Four themes** — Graphite, Paper, Liquid glass (real `NSGlassEffectView` on macOS 26+), Ink.
 - **Menu bar readout** of the current output rate.
@@ -85,6 +90,22 @@ and the DAC never re-locks. The panel will honestly report itself as "Resampled"
 
 Lossy streams report no rate at all, because only the lossless decoder logs one. The app says so
 rather than guessing.
+
+### What "other apps" covers
+
+The fallback keys off the system's now-playing information, so it sees apps that publish there —
+browsers, Spotify, Podcasts, TV, most media players. Measured on this machine: Safari playing
+audio publishes correctly (as `com.apple.WebKit.GPU`, which the app relabels to "Safari").
+
+It does **not** see apps that never register as now-playing. QuickTime Player playing a plain
+audio file publishes nothing at all, and neither do games, alert sounds or `afplay`. For those the
+rate simply stays where it is — the app would rather do nothing than guess.
+
+The **24-bit** half of "48 kHz / 24-bit" is best-effort, and often won't apply. Bit depth can only
+be set through a stream's physical format, and a device only offers what its driver publishes:
+every output on this Mac exposes a 32-bit container at 48 kHz and no 24-bit option at all. Where
+24-bit is offered it's selected; where it isn't, the rate still moves and the depth is left alone,
+which the panel reports honestly rather than claiming a depth it didn't set.
 
 ---
 

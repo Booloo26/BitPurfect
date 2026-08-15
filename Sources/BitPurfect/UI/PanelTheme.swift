@@ -93,7 +93,7 @@ struct PanelTheme {
         switch status {
         case .locked: return lockedColor
         case .resampled: return resampledColor
-        case .idle: return textMid
+        case .idle, .otherSource: return textMid
         }
     }
 

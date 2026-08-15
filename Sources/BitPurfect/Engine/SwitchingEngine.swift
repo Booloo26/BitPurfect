@@ -42,13 +42,29 @@ final class SwitchingEngine {
     private(set) var currentTrackTitle: String?
     private(set) var currentTrackArtist: String?
     private(set) var lastFormat: DetectedFormat?
+    private(set) var currentSource: NowPlayingSource = .stopped
+
+    /// Where non-Apple-Music audio gets parked. 48 kHz is what video, web audio and system
+    /// sound are authored at, so sitting there means the common case isn't resampled either.
+    /// The depth is a preference rather than a promise — see `applyFallback`.
+    private static let fallbackRate: Double = 48_000
+    private static let fallbackBitDepth = 24
 
     var isEnabled = UserDefaults.standard.object(forKey: "autoSwitchEnabled") as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(isEnabled, forKey: isEnabledKey)
-            if let lastFormat {
-                applyIfNeeded(lastFormat)
-            }
+            applyForCurrentState()
+            onStateChanged?()
+        }
+    }
+
+    /// Mirrors `AudioDeviceController.fallbackForOtherAppsEnabled`, re-evaluating immediately so
+    /// turning it on while a video is playing takes effect there and then.
+    var isFallbackEnabled: Bool {
+        get { audio.fallbackForOtherAppsEnabled }
+        set {
+            audio.fallbackForOtherAppsEnabled = newValue
+            applyForCurrentState()
             onStateChanged?()
         }
     }
@@ -69,8 +85,8 @@ final class SwitchingEngine {
 
     init(audio: AudioDeviceController) {
         self.audio = audio
-        watcher.onTrackChanged = { [weak self] payload in
-            self?.handleTrackChanged(payload)
+        watcher.onSourceChanged = { [weak self] source in
+            self?.handleSourceChanged(source)
         }
         formatStream.onFormat = { [weak self] format in
             self?.handleFormatDetected(format)
@@ -137,42 +153,39 @@ final class SwitchingEngine {
 
     // MARK: - Detection
 
-    private func handleTrackChanged(_ payload: TrackInfo.Payload?) {
-        guard let payload else {
-            // Playback stopped — but `lastFormat` is deliberately kept. Pausing does not
-            // unload the track, and Music logs a decoder line only when it *creates* a
-            // decoder: resuming reuses the existing one and logs nothing at all. Clearing the
-            // format here left nothing to detect and nothing to re-detect, so a pause/resume
-            // stranded the panel until the next track happened to build a new decoder.
+    private func handleSourceChanged(_ source: NowPlayingSource) {
+        currentSource = source
+
+        switch source {
+        case .stopped, .otherApp:
+            // `lastFormat` is deliberately kept through both. Pausing does not unload the track,
+            // and Music logs a decoder line only when it *creates* a decoder: resuming reuses the
+            // existing one and logs nothing at all. Clearing the format here left nothing to
+            // detect and nothing to re-detect, so a pause/resume stranded the panel until some
+            // later track happened to build a new decoder.
             detectionGeneration += 1
             currentTrackTitle = nil
             currentTrackArtist = nil
-            updateKeepAwake()
-            onStateChanged?()
-            return
+
+        case .appleMusic(let title, let artist):
+            currentTrackTitle = title
+            currentTrackArtist = artist
+            // Same reasoning across a track change: a run of tracks in one format logs a line
+            // only for the first. No new line means "same format as before", not "not lossless".
+            formatSearchExhausted = false
+
+            if lastFormat == nil {
+                // Nothing in hand, and the stream stays silent for a reused decoder — so the only
+                // way to learn the format is to read what was already logged. Covers launching
+                // while paused, and returning from a lossy stretch.
+                formatStream.reseed()
+            }
+            armDetectionDeadline()
         }
 
-        currentTrackTitle = payload.title
-        currentTrackArtist = payload.artist
-        // `lastFormat` also survives a track change, for the same reason: a run of tracks in
-        // one format logs a line only for the first. No new line means "same format as
-        // before", not "not lossless".
-        formatSearchExhausted = false
-
-        if let lastFormat {
-            // Re-assert the carried format: something else may have moved the device's rate
-            // while we were paused.
-            applyIfNeeded(lastFormat)
-        } else {
-            // Nothing in hand and the stream will stay silent for a reused decoder — so the
-            // only way to learn the format is to go read what was already logged. Covers
-            // launching while paused, and resuming after a lossy stretch.
-            formatStream.reseed()
-        }
-
+        applyForCurrentState()
         updateKeepAwake()
         onStateChanged?()
-        armDetectionDeadline()
     }
 
     /// A format arriving from the stream — the only way one ever arrives now.
@@ -193,7 +206,7 @@ final class SwitchingEngine {
 
         lastFormat = format
         formatSearchExhausted = false
-        applyIfNeeded(format)
+        applyForCurrentState()
         onStateChanged?()
     }
 
@@ -219,22 +232,50 @@ final class SwitchingEngine {
         return deviceRates.contains { abs($0 - forced) < 0.5 } ? forced : nil
     }
 
-    private func applyIfNeeded(_ format: DetectedFormat) {
+    /// Decides what the device should be running at right now and puts it there.
+    ///
+    /// Priority, highest first: a rate the user pinned by hand, then Apple Music's own rate,
+    /// then the 48 kHz fallback for anything else that's playing. With nothing playing the rate
+    /// is left alone, so pausing doesn't make the DAC re-lock.
+    private func applyForCurrentState() {
         guard let device = audio.targetDevice else { return }
         let deviceRates = audio.availableSampleRates(of: device)
 
-        let target: Double
         if let forced = resolvedForcedRate(deviceRates: deviceRates) {
-            target = forced
-        } else if isEnabled, let best = audio.bestSupportedRate(for: format.sampleRate, on: device) {
-            target = best
-        } else {
+            setRateIfNeeded(forced, on: device)
             return
         }
 
-        if let current = audio.currentSampleRate(of: device), abs(current - target) < 0.5 {
+        switch currentSource {
+        case .appleMusic:
+            guard isEnabled,
+                  let format = lastFormat,
+                  let best = audio.bestSupportedRate(for: format.sampleRate, on: device) else { return }
+            setRateIfNeeded(best, on: device)
+
+        case .otherApp:
+            guard audio.fallbackForOtherAppsEnabled else { return }
+            applyFallback(on: device)
+
+        case .stopped:
             return
         }
+    }
+
+    /// Parks the device at the fallback rate, and asks for the fallback bit depth as a bonus.
+    ///
+    /// The depth genuinely is a bonus: a device only offers what its driver publishes, and many
+    /// expose nothing but a 32-bit container at 48 kHz. When the exact pair isn't available the
+    /// rate still moves and the depth is left as it was, which is the honest outcome — better
+    /// than refusing to switch at all over a depth the hardware was never going to accept.
+    private func applyFallback(on device: AudioDevice) {
+        let rate = audio.bestSupportedRate(for: Self.fallbackRate, on: device) ?? Self.fallbackRate
+        setRateIfNeeded(rate, on: device)
+        audio.setPhysicalFormat(sampleRate: rate, bitDepth: Self.fallbackBitDepth, on: device)
+    }
+
+    private func setRateIfNeeded(_ target: Double, on device: AudioDevice) {
+        if let current = audio.currentSampleRate(of: device), abs(current - target) < 0.5 { return }
         audio.setSampleRate(target, on: device)
     }
 
@@ -255,12 +296,10 @@ final class SwitchingEngine {
     /// forced rate — call after the user changes which device BitPurfect targets, or pins/clears a rate.
     ///
     /// Safe to reach from a rate-change notification: our own write fires one too, but
-    /// `applyIfNeeded` stops as soon as the device already sits on the target, so it settles
-    /// rather than looping.
+    /// `applyForCurrentState` stops as soon as the device already sits on the target, so it
+    /// settles rather than looping.
     func reapplyToCurrentDevice() {
-        if let lastFormat {
-            applyIfNeeded(lastFormat)
-        }
+        applyForCurrentState()
         updateKeepAwake()
         onStateChanged?()
     }
@@ -271,7 +310,7 @@ final class SwitchingEngine {
     /// hasn't turned it off, and it emits pure zeros for as long as Music is streaming so
     /// a bit-perfect path stays bit perfect.
     private func updateKeepAwake() {
-        keepAwake.isSourcePlaying = currentTrackTitle != nil
+        keepAwake.isSourcePlaying = currentSource.isPlaying
 
         guard audio.keepAwakeEnabled,
               let device = audio.targetDevice,
@@ -311,7 +350,18 @@ final class SwitchingEngine {
         let deviceRates = audio.availableSampleRates(of: device)
         let deviceBits = audio.physicalBitDepth(of: device)
         let antiPop = antiPopState(for: device)
-        let isPlaying = currentTrackTitle != nil
+
+        if case .otherApp(let appName) = currentSource {
+            return otherAppState(
+                appName: appName,
+                device: device,
+                currentRate: currentRate,
+                deviceBits: deviceBits,
+                antiPop: antiPop
+            )
+        }
+
+        let isPlaying = currentSource.isPlaying
 
         guard isPlaying, let format = lastFormat else {
             return waitingState(
@@ -363,6 +413,7 @@ final class SwitchingEngine {
             deviceName: device.name,
             autoOn: isEnabled && forced == nil,
             isSourcePlaying: isPlaying,
+            sourceLabel: "Apple Music",
             antiPop: antiPop
         )
     }
@@ -370,6 +421,42 @@ final class SwitchingEngine {
     /// Covers both of the states where there's no decoded format to report: Music isn't
     /// playing at all, and the ~1-2s after a track starts while we wait for coreaudiod to
     /// log what it's decoding.
+    /// Something other than Apple Music is playing. There's no source rate to be faithful to
+    /// here — the honest thing is to say who has the audio and where the device is sitting.
+    private func otherAppState(
+        appName: String,
+        device: AudioDevice,
+        currentRate: Double?,
+        deviceBits: Int?,
+        antiPop: PanelDisplayState.AntiPop?
+    ) -> PanelDisplayState {
+        let rateStr = currentRate.map(PanelDisplayState.fmt) ?? "—"
+        let forced = resolvedForcedRate(deviceRates: audio.availableSampleRates(of: device))
+
+        let verdict: String
+        if let forced {
+            verdict = "\(appName) is playing, and you've pinned the output to \(PanelDisplayState.fmt(forced)) kHz, so that's where it stays."
+        } else if audio.fallbackForOtherAppsEnabled {
+            verdict = "\(appName) is playing, so the DAC is parked at \(rateStr) kHz — the rate most video and web audio is made at. Apple Music takes it back on the next track."
+        } else {
+            verdict = "\(appName) is playing. Fallback is off, so the DAC is left at \(rateStr) kHz, whatever the last track needed."
+        }
+
+        return PanelDisplayState(
+            status: .otherSource,
+            menubarLabel: currentRate.map { "\(PanelDisplayState.fmt($0))k" } ?? "—",
+            outRateStr: rateStr,
+            outBits: deviceBits ?? 0,
+            format: audio.fallbackForOtherAppsEnabled && forced == nil ? "Fallback" : "Not Apple Music",
+            verdict: verdict,
+            deviceName: device.name,
+            autoOn: isEnabled && forced == nil,
+            isSourcePlaying: true,
+            sourceLabel: appName,
+            antiPop: antiPop
+        )
+    }
+
     private func waitingState(
         device: AudioDevice,
         currentRate: Double?,
@@ -377,7 +464,7 @@ final class SwitchingEngine {
         antiPop: PanelDisplayState.AntiPop?
     ) -> PanelDisplayState {
         let rateStr = currentRate.map(PanelDisplayState.fmt) ?? "—"
-        let isPlaying = currentTrackTitle != nil
+        let isPlaying = currentSource.isPlaying
         let unreadable = isPlaying && formatSearchExhausted
 
         let verdict: String
@@ -401,6 +488,7 @@ final class SwitchingEngine {
             deviceName: device.name,
             autoOn: isEnabled && audio.forcedRate == nil,
             isSourcePlaying: isPlaying,
+            sourceLabel: isPlaying ? "Apple Music" : "Apple Music · idle",
             antiPop: antiPop
         )
     }

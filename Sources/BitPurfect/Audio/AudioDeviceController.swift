@@ -7,6 +7,7 @@ final class AudioDeviceController {
     private let preferredDeviceUIDKey = "preferredOutputDeviceUID"
     private let forcedRateKey = "forcedOutputRate"
     private let keepAwakeKey = "keepDACAwake"
+    private let fallbackKey = "fallbackForOtherApps"
 
     var outputDevices: [AudioDevice] {
         core.allOutputDevices
@@ -126,5 +127,38 @@ final class AudioDeviceController {
     @discardableResult
     func setSampleRate(_ rate: Double, on device: AudioDevice) -> Bool {
         device.setNominalSampleRate(rate)
+    }
+
+    /// Whether the user wants non-Apple-Music audio parked at a fixed rate rather than left on
+    /// whatever the last track needed. On by default: 48 kHz is what video, web audio and system
+    /// sound are authored at, so it's the least-wrong place to sit when Music isn't driving.
+    var fallbackForOtherAppsEnabled: Bool {
+        get { defaults.object(forKey: fallbackKey) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: fallbackKey) }
+    }
+
+    /// Sets the stream's physical format, which is the only way to move bit depth — the nominal
+    /// sample rate property carries no depth at all.
+    ///
+    /// Best-effort by design: a device only offers the depths its driver publishes, and plenty
+    /// expose a 32-bit container at 48 kHz and nothing else. Returns false when the exact
+    /// rate/depth pair isn't on offer, leaving the caller to settle for setting the rate.
+    @discardableResult
+    func setPhysicalFormat(sampleRate: Double, bitDepth: Int, on device: AudioDevice) -> Bool {
+        guard let stream = device.streams(scope: .output)?.first,
+              let available = stream.availablePhysicalFormats else { return false }
+
+        let match = available.map(\.mFormat).first {
+            abs($0.mSampleRate - sampleRate) < 0.5 && Int($0.mBitsPerChannel) == bitDepth
+        }
+        guard let match else { return false }
+
+        if let current = stream.physicalFormat,
+           abs(current.mSampleRate - match.mSampleRate) < 0.5,
+           current.mBitsPerChannel == match.mBitsPerChannel {
+            return true
+        }
+        stream.physicalFormat = match
+        return true
     }
 }
